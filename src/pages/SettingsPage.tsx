@@ -217,10 +217,32 @@ export default function SettingsPage() {
               <Info className="w-5 h-5 text-blue-400" />
               关于
             </h2>
-            <div className="text-sm text-gray-400 space-y-2">
-              <p>Game Asset Studio v1.0.0</p>
-              <p>2D游戏素材聚合搜索与管理工具</p>
-              <p>支持 itch.io、OpenGameArt、Kenney 等多个素材网站</p>
+            <div className="text-sm text-gray-400 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-white font-medium">Game Asset Studio</span>
+                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs">v1.0.0</span>
+              </div>
+              <p>2D 游戏素材聚合搜索与管理工具</p>
+              <div className="pt-2 border-t border-[#333]">
+                <p className="mb-2">支持的素材网站：</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li>itch.io - 最大的独立游戏素材市场</li>
+                  <li>OpenGameArt.org - 开源游戏素材社区</li>
+                  <li>Kenney.nl - 高质量免费素材</li>
+                </ul>
+              </div>
+              <div className="pt-2 border-t border-[#333]">
+                <p className="mb-2">技术栈：</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li>前端：React + TypeScript + TailwindCSS</li>
+                  <li>后端：Tauri (Rust)</li>
+                  <li>数据库：SQLite</li>
+                </ul>
+              </div>
+              <div className="pt-2 border-t border-[#333] text-xs text-gray-500">
+                <p>GitHub: <a href="https://github.com/Justinian-A/game-asset-studio" className="text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">Justinian-A/game-asset-studio</a></p>
+                <p>License: MIT</p>
+              </div>
             </div>
           </section>
         </div>
