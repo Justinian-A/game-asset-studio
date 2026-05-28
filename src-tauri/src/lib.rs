@@ -70,15 +70,18 @@ async fn start_download(
     
     let asset_db_id = database.insert_asset(&record).map_err(|e| e.to_string())?;
     
+    // 获取 API Key（如果有的话）
+    let api_key = database.get_setting("itch_api_key").ok().flatten();
+    
     // Start download
     let manager = download::DownloadManager::new(download_dir);
-    let task = manager.add_download(&asset.id, &asset.title, &asset.url).await;
+    let task = manager.add_download(&asset.id, &asset.title, &asset.url, &asset.source).await;
     let task_id = task.id.clone();
     let tasks_clone = manager.tasks.clone();
     let db_path_clone = db_path.clone();
     let asset_id_clone = asset.id.clone();
     
-    manager.start_download(&task_id).await?;
+    manager.start_download(&task_id, api_key).await?;
     
     // Spawn a task to monitor download completion and update database
     tokio::spawn(async move {
@@ -209,6 +212,104 @@ async fn get_downloaded_assets(app: tauri::AppHandle) -> Result<Vec<db::AssetRec
     database.get_downloaded().map_err(|e| e.to_string())
 }
 
+// itch.io API commands
+#[derive(serde::Serialize)]
+struct ApiKeyValidationResult {
+    valid: bool,
+    username: Option<String>,
+    error: Option<String>,
+}
+
+#[tauri::command]
+async fn validate_itch_api_key(api_key: String) -> Result<ApiKeyValidationResult, String> {
+    let client = reqwest::Client::new();
+    
+    // 调用 itch.io API 验证 Key
+    let response = client
+        .get("https://api.itch.io/credentials/info")
+        .header("Authorization", &api_key)
+        .send()
+        .await
+        .map_err(|e| format!("网络请求失败: {}", e))?;
+    
+    if response.status().is_success() {
+        let body: serde_json::Value = response.json().await
+            .map_err(|e| format!("解析响应失败: {}", e))?;
+        
+        let username = body.get("username")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        
+        Ok(ApiKeyValidationResult {
+            valid: true,
+            username,
+            error: None,
+        })
+    } else {
+        Ok(ApiKeyValidationResult {
+            valid: false,
+            username: None,
+            error: Some("API Key 无效".to_string()),
+        })
+    }
+}
+
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", &url])
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_itch_api_key(app: tauri::AppHandle, api_key: String) -> Result<(), String> {
+    let db_path = get_db_path(&app)?;
+    let database = db::Database::new(&db_path).map_err(|e| e.to_string())?;
+    database.set_setting("itch_api_key", &api_key).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_itch_api_key(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let db_path = get_db_path(&app)?;
+    let database = db::Database::new(&db_path).map_err(|e| e.to_string())?;
+    database.get_setting("itch_api_key").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn is_setup_complete(app: tauri::AppHandle) -> Result<bool, String> {
+    let db_path = get_db_path(&app)?;
+    let database = db::Database::new(&db_path).map_err(|e| e.to_string())?;
+    
+    // 检查是否已经配置了 API Key
+    match database.get_setting("itch_api_key").map_err(|e| e.to_string())? {
+        Some(_) => Ok(true),
+        None => Ok(false),
+    }
+}
+
 // Image processing commands
 #[tauri::command]
 async fn get_image_info(path: String) -> Result<image::ImageInfo, String> {
@@ -274,10 +375,44 @@ async fn split_spritesheet(
     )
 }
 
-fn get_download_dir(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn get_download_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    // 尝试从数据库读取用户配置的下载路径
+    let db_path = get_db_path(app)?;
+    if let Ok(database) = db::Database::new(&db_path) {
+        if let Ok(Some(path)) = database.get_setting("download_dir") {
+            let dir = PathBuf::from(&path);
+            // 确保目录存在
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                eprintln!("[Download] Failed to create download dir: {}", e);
+            }
+            return Ok(dir);
+        }
+    }
+    
+    // 默认路径
     let home_dir = dirs::home_dir().ok_or("Failed to get home directory")?;
     let download_dir = home_dir.join("GameAssetStudio").join("downloads");
     Ok(download_dir)
+}
+
+#[tauri::command]
+fn set_download_dir(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let db_path = get_db_path(&app)?;
+    let database = db::Database::new(&db_path).map_err(|e| e.to_string())?;
+    database.set_setting("download_dir", &path).map_err(|e| e.to_string())?;
+    
+    // 确保目录存在
+    let dir = PathBuf::from(&path);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create directory: {}", e))?;
+    
+    eprintln!("[Settings] Download directory set to: {}", path);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_download_path(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = get_download_dir(&app)?;
+    Ok(dir.to_string_lossy().to_string())
 }
 
 fn get_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -304,14 +439,12 @@ pub fn run() {
             let db_path = app_dir.join("assets.db");
             db::init_database(&db_path).expect("failed to initialize database");
             
-            // Log setup
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Log setup - always enable logging
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             
             log::info!("Game Asset Studio started");
             log::info!("Database path: {:?}", db_path);
@@ -334,6 +467,13 @@ pub fn run() {
             delete_from_library,
             get_library_stats,
             get_downloaded_assets,
+            set_download_dir,
+            get_download_path,
+            validate_itch_api_key,
+            set_itch_api_key,
+            get_itch_api_key,
+            is_setup_complete,
+            open_url,
             get_image_info,
             convert_image,
             resize_image,

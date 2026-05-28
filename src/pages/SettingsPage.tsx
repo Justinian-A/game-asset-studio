@@ -1,26 +1,26 @@
 import { useState, useEffect } from "react";
-import { Settings, FolderOpen, Key, Globe, Info, Download, HardDrive } from "lucide-react";
+import { Settings, FolderOpen, Key, Globe, Info, Download, HardDrive, Check } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 export default function SettingsPage() {
   const [storagePath, setStoragePath] = useState("D:\\GameAssetStudio\\downloads");
   const [itchApiKey, setItchApiKey] = useState("");
   const [exportFormat, setExportFormat] = useState("unity");
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load saved settings
+    // 加载保存的设置
     loadSettings();
   }, []);
 
   const loadSettings = async () => {
     try {
-      // TODO: Load settings from database or config file
-      const savedPath = localStorage.getItem("storagePath");
-      if (savedPath) {
-        setStoragePath(savedPath);
-      }
+      // 从后端获取下载路径
+      const path = await invoke<string>("get_download_path");
+      setStoragePath(path);
     } catch (err) {
-      console.error("Failed to load settings:", err);
+      console.error("Failed to load download path:", err);
     }
   };
 
@@ -34,38 +34,56 @@ export default function SettingsPage() {
       });
       
       if (selected) {
-        setStoragePath(selected as string);
-        localStorage.setItem("storagePath", selected as string);
-        // TODO: Save to Tauri backend
+        const newPath = selected as string;
+        setStoragePath(newPath);
+        
+        // 保存到后端
+        await invoke("set_download_dir", { path: newPath });
+        setSaveStatus("下载路径已保存");
+        setTimeout(() => setSaveStatus(null), 2000);
       }
     } catch (err) {
       console.error("Failed to open folder dialog:", err);
+      setSaveStatus("保存失败: " + err);
+      setTimeout(() => setSaveStatus(null), 3000);
     }
   };
 
-  const handleSaveSettings = () => {
-    localStorage.setItem("storagePath", storagePath);
-    localStorage.setItem("itchApiKey", itchApiKey);
-    localStorage.setItem("exportFormat", exportFormat);
-    // TODO: Save to Tauri backend
-    alert("设置已保存");
+  const handleSaveSettings = async () => {
+    try {
+      await invoke("set_download_dir", { path: storagePath });
+      setSaveStatus("设置已保存");
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+      setSaveStatus("保存失败: " + err);
+      setTimeout(() => setSaveStatus(null), 3000);
+    }
   };
 
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
       <header className="p-6 border-b border-[#333]">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col items-center gap-4">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Settings className="w-6 h-6" />
             设置
           </h1>
-          <button
-            onClick={handleSaveSettings}
-            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg text-sm transition-colors"
-          >
-            保存设置
-          </button>
+          <div className="flex items-center gap-3">
+            {saveStatus && (
+              <span className="text-sm text-green-400 flex items-center gap-1">
+                <Check className="w-4 h-4" />
+                {saveStatus}
+              </span>
+            )}
+            <button
+              onClick={handleSaveSettings}
+              className="px-6 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg text-sm font-medium transition-colors"
+            >
+              保存设置
+            </button>
+          </div>
         </div>
       </header>
 

@@ -58,6 +58,11 @@ pub fn init_database(db_path: &Path) -> Result<()> {
             FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         
         CREATE INDEX IF NOT EXISTS idx_assets_source ON assets(source);
         CREATE INDEX IF NOT EXISTS idx_assets_downloaded ON assets(downloaded);
@@ -314,5 +319,25 @@ impl Database {
         let downloaded: i64 = self.conn.query_row("SELECT COUNT(*) FROM assets WHERE downloaded = 1", [], |row| row.get(0))?;
         let favorites: i64 = self.conn.query_row("SELECT COUNT(*) FROM assets WHERE favorite = 1", [], |row| row.get(0))?;
         Ok((total, downloaded, favorites))
+    }
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut rows = stmt.query_map(params![key], |row| {
+            Ok(row.get::<_, String>(0)?)
+        })?;
+        
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
     }
 }

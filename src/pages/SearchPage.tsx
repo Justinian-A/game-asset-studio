@@ -137,16 +137,16 @@ export default function SearchPage() {
         <h1 className="text-2xl font-bold mb-4">搜索素材</h1>
         
         {/* Search Bar */}
-        <div className="flex gap-3">
+        <div className="flex gap-3 max-w-4xl mx-auto">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              placeholder="输入关键词搜索游戏素材... 例如: pixel art, character, tileset"
-              className="w-full pl-10 pr-4 py-3 bg-[#1a1a1a] border border-[#333] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+              placeholder="输入关键词搜索游戏素材..."
+              className="w-full pl-12 pr-4 py-3 bg-[#1a1a1a] border border-[#333] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
           <button

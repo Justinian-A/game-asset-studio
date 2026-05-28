@@ -19,6 +19,7 @@ pub struct ItchAsset {
 
 pub struct ItchClient {
     client: Client,
+    api_key: Option<String>,
 }
 
 impl ItchClient {
@@ -28,7 +29,95 @@ impl ItchClient {
             .build()
             .expect("Failed to create HTTP client");
         
-        Self { client }
+        Self { client, api_key: None }
+    }
+
+    pub fn with_api_key(api_key: String) -> Self {
+        let client = Client::builder()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .build()
+            .expect("Failed to create HTTP client");
+        
+        Self { client, api_key: Some(api_key) }
+    }
+
+    /// 使用 itch.io API 获取下载链接
+    pub async fn get_download_url(&self, game_id: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+        let api_key = self.api_key.as_ref()
+            .ok_or("API Key not configured")?;
+
+        // 1. 获取游戏的上传列表
+        let uploads_url = format!("https://api.itch.io/games/{}/uploads", game_id);
+        let response = self.client.get(&uploads_url)
+            .header("Authorization", api_key)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(format!("Failed to get uploads: {}", response.status()).into());
+        }
+
+        let uploads: serde_json::Value = response.json().await?;
+        
+        // 2. 获取第一个上传文件的 ID
+        let upload_id = uploads.get("uploads")
+            .and_then(|u| u.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|upload| upload.get("id"))
+            .and_then(|id| id.as_i64())
+            .ok_or("No uploads found")?;
+
+        // 3. 获取下载链接
+        let download_url = format!("https://api.itch.io/uploads/{}/download", upload_id);
+        let response = self.client.get(&download_url)
+            .header("Authorization", api_key)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(format!("Failed to get download URL: {}", response.status()).into());
+        }
+
+        // 4. 解析响应获取实际下载 URL
+        let download_info: serde_json::Value = response.json().await?;
+        let url = download_info.get("url")
+            .and_then(|u| u.as_str())
+            .ok_or("No download URL in response")?
+            .to_string();
+
+        Ok(url)
+    }
+
+    /// 从 itch.io URL 中提取游戏 ID
+    pub fn extract_game_id(url: &str) -> Option<String> {
+        // URL 格式: https://username.itch.io/game-name
+        // 需要通过 API 或页面获取游戏 ID
+        
+        // 尝试从页面获取
+        None
+    }
+
+    /// 使用 API Key 获取用户拥有的游戏列表
+    pub async fn get_owned_games(&self) -> Result<Vec<serde_json::Value>, Box<dyn Error + Send + Sync>> {
+        let api_key = self.api_key.as_ref()
+            .ok_or("API Key not configured")?;
+
+        let response = self.client.get("https://api.itch.io/profile/owned-keys")
+            .header("Authorization", api_key)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(format!("Failed to get owned games: {}", response.status()).into());
+        }
+
+        let data: serde_json::Value = response.json().await?;
+        let games = data.get("owned_keys")
+            .and_then(|k| k.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        Ok(games)
     }
 
     pub async fn search(&self, query: &str, page: u32) -> Result<Vec<ItchAsset>, Box<dyn Error + Send + Sync>> {
